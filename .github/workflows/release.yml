@@ -24,7 +24,7 @@ jobs:
         run: npm install -g @vscode/vsce
 
       - name: Package Extension
-        run: vsce package -o antigravity-autoaccept.vsix
+        run: vsce package --allow-star-activation -o antigravity-autoaccept.vsix
         
       - name: Get version from tag
         id: get_version
