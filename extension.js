@@ -22,106 +22,82 @@ const ACCEPT_COMMANDS = [
 // The agent panel runs in an isolated Chromium process (OOPIF) since
 // VS Code's migration to Out-Of-Process Iframes.
 function buildPermissionScript(customTexts) {
-    const allTexts = [
-        'run alt', 'run ', 'accept',
-        'always allow', 'allow this conversation', 'allow',
-        ...customTexts
-    ];
     return `
 (function() {
-    var BUTTON_TEXTS = ${JSON.stringify(allTexts)};
-    
-    // ═══ WEBVIEW GUARD ═══
-    // Check for Antigravity agent panel DOM markers or just check if it's VS Code webview
-    // We relax the selectors so it works across various UI updates.
-    if (!document.querySelector('.react-app-container') && 
-        !document.querySelector('[class*="agent"]') &&
-        !document.querySelector('[data-vscode-context]') &&
-        !document.body.classList.contains('vscode-body')) {
-        // If none of these match, maybe we aren't where we think we are, but let's be more lenient
-        // Optional: comment this whole block out to just search everywhere!
-    }
-    
-    // We are safely inside the isolated agent panel webview.
-    // document.body IS the agent panel — no iframe needed.
+    var custom = ${JSON.stringify(customTexts || [])}.map(function(t) { return t.toLowerCase(); });
 
-    // ═══ AUTO-SCROLL TO BOTTOM ═══
-    // Try to find the chat container and scroll it to the bottom so buttons are in view.
-    var scrollContainer = document.querySelector('.monaco-scrollable-element');
-    if (scrollContainer) {
-        scrollContainer.scrollTop = scrollContainer.scrollHeight;
+    function isClickable(el) {
+        if (!el) return false;
+        var tag = (el.tagName || '').toLowerCase();
+        if (tag === 'button' || tag.includes('button') || tag.includes('btn')) return true;
+        if (el.getAttribute('role') === 'button' || el.getAttribute('tabindex') === '0') return true;
+        if (el.classList && el.classList.contains('cursor-pointer')) return true;
+        if (typeof el.onclick === 'function') return true;
+        return false;
     }
-    
-    function closestClickable(node) {
-        var el = node;
-        while (el && el !== document.body) {
-            var tag = (el.tagName || '').toLowerCase();
-            if (tag === 'button' || tag.includes('button') || tag.includes('btn') ||
-                el.getAttribute('role') === 'button' || el.classList.contains('cursor-pointer') ||
-                el.onclick || el.getAttribute('tabindex') === '0') {
-                return el;
-            }
-            el = el.parentElement;
-        }
-        return node;
-    }
-    
-    function findButton(root, text) {
+
+    function searchTree(root, isPass2) {
         var walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
         var node;
         while ((node = walker.nextNode())) {
             if (node.shadowRoot) {
-                var result = findButton(node.shadowRoot, text);
-                if (result) return result;
+                var res = searchTree(node.shadowRoot, isPass2);
+                if (res) return res;
             }
-            var testId = (node.getAttribute('data-testid') || node.getAttribute('data-action') || '').toLowerCase();
-            if (testId.includes('alwaysallow') || testId.includes('always-allow') || testId.includes('allow')) {
-                var tag1 = (node.tagName || '').toLowerCase();
-                if (tag1 === 'button' || tag1.includes('button') || node.getAttribute('role') === 'button' || tag1.includes('btn')) {
-                    return node;
-                }
-            }
-            var nodeText = (node.textContent || '').trim().toLowerCase();
-            // Length cap: real buttons have short text (< 50 chars).
-            // Skip large container elements that happen to start with button text.
-            if (nodeText.length > 50) continue;
-            if (nodeText === text || (text.length >= 3 && nodeText.startsWith(text)) || (text === 'run ' && nodeText.startsWith('run alt'))) {
-                var clickable = closestClickable(node);
-                var tag2 = (clickable.tagName || '').toLowerCase();
-                if (tag2 === 'button' || tag2.includes('button') || clickable.getAttribute('role') === 'button' || 
-                    tag2.includes('btn') || clickable.classList.contains('cursor-pointer') ||
-                    clickable.onclick || clickable.getAttribute('tabindex') === '0' ||
-                    text === 'expand' || text === 'requires input') {
-                    // Idempotency guard: skip disabled/loading buttons
-                    if (clickable.disabled || clickable.getAttribute('aria-disabled') === 'true' ||
-                        clickable.classList.contains('loading') || clickable.querySelector('.codicon-loading')) {
-                        return null;
+            
+            var text = (node.textContent || '').replace(/[\\n\\r]+/g, ' ').replace(/\\s+/g, ' ').trim().toLowerCase();
+            if (text.length > 60 || text.length < 3) continue;
+
+            var isRun = text.startsWith('run alt') || text === 'run' || text === 'accept';
+            var isAllow = text.startsWith('always allow') || text === 'allow' || text.startsWith('always run');
+            var isExpand = text === 'expand' || text === 'requires input';
+            var isCustom = custom.some(function(ct) { return text.startsWith(ct); });
+            
+            var matchFound = false;
+            if (!isPass2 && (isRun || isAllow || isCustom)) matchFound = true;
+            if (isPass2 && isExpand) matchFound = true;
+
+            if (matchFound) {
+                var target = node;
+                var foundClickable = isClickable(node);
+                
+                if (!foundClickable && node.closest) {
+                    var parent = node.closest('button, [role="button"], .cursor-pointer, [tabindex="0"]');
+                    if (parent && (parent.textContent || '').trim().length < 80) {
+                        target = parent;
+                        foundClickable = true;
                     }
-                    return clickable;
                 }
+                
+                if (!foundClickable && !isExpand) continue;
+
+                if (target.disabled || target.getAttribute('aria-disabled') === 'true' || 
+                    target.classList.contains('loading') || target.querySelector('.codicon-loading')) {
+                    continue;
+                }
+                
+                // Auto-scroll the button into view
+                try { target.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(e) {}
+                
+                // Fire native and synthetic clicks
+                try { target.click(); } catch(e) {}
+                try {
+                    var evt = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
+                    target.dispatchEvent(evt);
+                } catch(e) {}
+                
+                return 'clicked:' + text;
             }
         }
         return null;
     }
     
-    // ═══ PASS 1: Search for ACTION buttons (Run, Accept, Allow, etc.) ═══
-    for (var t = 0; t < BUTTON_TEXTS.length; t++) {
-        var btn = findButton(document.body, BUTTON_TEXTS[t]);
-        if (btn) {
-            btn.click();
-            return 'clicked:' + BUTTON_TEXTS[t];
-        }
-    }
+    var res1 = searchTree(document.body, false);
+    if (res1) return res1;
     
-    // ═══ PASS 2: No action buttons found — click Expand to reveal them ═══
-    var expandTexts = ['expand', 'requires input'];
-    for (var e = 0; e < expandTexts.length; e++) {
-        var expBtn = findButton(document.body, expandTexts[e]);
-        if (expBtn) {
-            expBtn.click();
-            return 'clicked:' + expandTexts[e];
-        }
-    }
+    var res2 = searchTree(document.body, true);
+    if (res2) return res2;
+    
     return 'no-permission-button';
 })()
 `;
