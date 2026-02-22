@@ -44,6 +44,13 @@ function buildPermissionScript(customTexts) {
     
     // We are safely inside the isolated agent panel webview.
     // document.body IS the agent panel — no iframe needed.
+
+    // ═══ AUTO-SCROLL TO BOTTOM ═══
+    // Try to find the chat container and scroll it to the bottom so buttons are in view.
+    var scrollContainer = document.querySelector('.monaco-scrollable-element');
+    if (scrollContainer) {
+        scrollContainer.scrollTop = scrollContainer.scrollHeight;
+    }
     
     function closestClickable(node) {
         var el = node;
