@@ -32,8 +32,17 @@ function buildPermissionScript(customTexts) {
 (function() {
     var BUTTON_TEXTS = ${JSON.stringify(allTexts)};
 
+    // ═══ DEBOUNCE / COOLDOWN ═══
+    var NOW = Date.now();
+    if (window._antigravity_last_click_time && (NOW - window._antigravity_last_click_time < 3000)) {
+        return 'cooldown';
+    }
+
     function isClickable(el) {
         if (!el) return false;
+        // Don't click buttons that are already expanded (menus)
+        if (el.getAttribute('aria-expanded') === 'true') return false;
+        
         var tag = (el.tagName || '').toLowerCase();
         if (tag === 'button' || tag.includes('button') || tag.includes('btn')) return true;
         if (el.getAttribute('role') === 'button' || el.getAttribute('tabindex') === '0') return true;
@@ -68,14 +77,11 @@ function buildPermissionScript(customTexts) {
             
             var nText = (node.textContent || '').replace(/[\\n\\r]+/g, '').replace(/\\s+/g, '').trim().toLowerCase();
             
-            // Limit text size to prevent matching giant containers
             if (nText.length > 80 || nText.length < 3) continue;
 
             var match = false;
-            // Strict match for "run ", standard startsWith for others
-            if (text === 'run ' && (nText === 'run' || nText.startsWith('runalt'))) {
-                match = true;
-            } else if (text !== 'run ' && nText.startsWith(text.replace(/\\s+/g, ''))) {
+            var cleanT = text.replace(/\\s+/g, '').toLowerCase();
+            if (nText === cleanT || nText.startsWith(cleanT)) {
                 match = true;
             } else if (text === 'accept' && nText.includes(text)) {
                 match = true;
@@ -89,7 +95,7 @@ function buildPermissionScript(customTexts) {
                     if (target.disabled || target.getAttribute('aria-disabled') === 'true' || 
                         (target.classList && target.classList.contains('loading')) || 
                         (target.querySelector && target.querySelector('.codicon-loading'))) {
-                        continue; // found it, but disabled
+                        continue; 
                     }
                     return target;
                 }
@@ -98,11 +104,11 @@ function buildPermissionScript(customTexts) {
         return null;
     }
 
-    // ═══ PASS 1: Ordered search to prioritize "Run" over "Always run" ═══
     for (var i = 0; i < BUTTON_TEXTS.length; i++) {
         var t = BUTTON_TEXTS[i];
         var target = searchTreeForText(document.body, t);
         if (target) {
+            window._antigravity_last_click_time = Date.now();
             try { target.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(e) {}
             try { target.click(); } catch(e) {}
             try {
@@ -113,11 +119,12 @@ function buildPermissionScript(customTexts) {
         }
     }
 
-    // ═══ PASS 2: Expand buttons ═══
+    // Pass 2: Expand
     var expTexts = ['expand', 'requires input'];
     for (var j = 0; j < expTexts.length; j++) {
         var eTarget = searchTreeForText(document.body, expTexts[j]);
         if (eTarget) {
+            window._antigravity_last_click_time = Date.now();
             try { eTarget.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(e) {}
             try { eTarget.click(); } catch(e) {}
             return 'clicked:' + expTexts[j];
