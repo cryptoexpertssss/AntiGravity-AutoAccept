@@ -23,7 +23,7 @@ const ACCEPT_COMMANDS = [
 // VS Code's migration to Out-Of-Process Iframes.
 function buildPermissionScript(customTexts) {
     const allTexts = [
-        'run', 'accept',  // Primary action buttons first ("Run Alt+d", "Accept")
+        'run alt', 'run ', 'accept',
         'always allow', 'allow this conversation', 'allow',
         ...customTexts
     ];
@@ -78,7 +78,7 @@ function buildPermissionScript(customTexts) {
             // Length cap: real buttons have short text (< 50 chars).
             // Skip large container elements that happen to start with button text.
             if (nodeText.length > 50) continue;
-            if (nodeText === text || (text.length >= 3 && nodeText.startsWith(text))) {
+            if (nodeText === text || (text.length >= 3 && nodeText.startsWith(text)) || (text === 'run ' && nodeText.startsWith('run alt'))) {
                 var clickable = closestClickable(node);
                 var tag2 = (clickable.tagName || '').toLowerCase();
                 if (tag2 === 'button' || tag2.includes('button') || clickable.getAttribute('role') === 'button' || 
