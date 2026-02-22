@@ -66,16 +66,16 @@ function buildPermissionScript(customTexts) {
                 if (res) return res;
             }
             
-            var nText = (node.textContent || '').replace(/[\\n\\r]+/g, ' ').replace(/\\s+/g, ' ').trim().toLowerCase();
+            var nText = (node.textContent || '').replace(/[\\n\\r]+/g, '').replace(/\\s+/g, '').trim().toLowerCase();
             
             // Limit text size to prevent matching giant containers
             if (nText.length > 80 || nText.length < 3) continue;
 
             var match = false;
             // Strict match for "run ", standard startsWith for others
-            if (text === 'run ' && (nText === 'run' || nText.startsWith('run alt') || nText.startsWith('runalt'))) {
+            if (text === 'run ' && (nText === 'run' || nText.startsWith('runalt'))) {
                 match = true;
-            } else if (text !== 'run ' && nText.startsWith(text)) {
+            } else if (text !== 'run ' && nText.startsWith(text.replace(/\\s+/g, ''))) {
                 match = true;
             } else if (text === 'accept' && nText.includes(text)) {
                 match = true;
