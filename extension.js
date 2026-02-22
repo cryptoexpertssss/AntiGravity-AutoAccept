@@ -1,10 +1,15 @@
-// AntiGravity AutoAccept v1.18.4
+// AntiGravity AutoAccept v1.18.17
 // Primary: VS Code Commands API with async lock
 // Secondary: Shadow DOM-piercing CDP for permission & action buttons
 
 const vscode = require('vscode');
 const http = require('http');
 const WebSocket = require('ws');
+const fs = require('fs');
+const cp = require('child_process');
+const path = require('path');
+const os = require('os');
+const net = require('net');
 
 // ─── VS Code Commands ─────────────────────────────────────────────────
 // Only Antigravity-specific commands — generic VS Code commands like
@@ -436,8 +441,58 @@ function stopPolling() {
     log('Polling stopped');
 }
 
+
+// ─── Launcher for Multiple Instances ──────────────────────────────────
+async function isPortFree(port) {
+    return new Promise((resolve) => {
+        const server = net.createServer()
+            .once('error', () => resolve(false))
+            .once('listening', () => {
+                server.close();
+                resolve(true);
+            })
+            .listen(port, '127.0.0.1');
+    });
+}
+
+async function launchNewInstance() {
+    const port = await findFreePort();
+    if (!port) {
+        vscode.window.showErrorMessage('No free debugging ports found in range 9222-9230.');
+        return;
+    }
+
+    const exe = process.execPath;
+    const userData = path.join(os.homedir(), '.antigravity-autoaccept', 'instances', `port${port}`);
+
+    if (!fs.existsSync(userData)) {
+        fs.mkdirSync(userData, { recursive: true });
+    }
+
+    log(`[Launcher] Spawning new instance on port ${port}...`);
+    log(`[Launcher] User Data: ${userData}`);
+
+    const args = [
+        `--remote-debugging-port=${port}`,
+        `--user-data-dir=${userData}`
+    ];
+
+    cp.spawn(exe, args, {
+        detached: true,
+        stdio: 'ignore'
+    }).unref();
+
+    vscode.window.showInformationMessage(`🚀 Launching NEW Antigravity window on port ${port}...`);
+}
+
+async function findFreePort() {
+    for (let p = 9222; p <= 9230; p++) {
+        if (await isPortFree(p)) return p;
+    }
+    return null;
+}
+
 // ─── CDP Auto-Fix: Detect & Repair ───────────────────────────────────
-const cp = require('child_process');
 
 function checkAndFixCDP() {
     return new Promise((resolve) => {
@@ -563,7 +618,7 @@ function applyTemporarySessionRestart() {
 // ─── Activation ───────────────────────────────────────────────────────
 function activate(context) {
     outputChannel = vscode.window.createOutputChannel('AntiGravity AutoAccept');
-    log('Extension activating (v1.18.4)');
+    log('Extension activating (v1.18.17)');
 
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
     statusBarItem.command = 'autoAcceptV2.toggle';
@@ -582,6 +637,19 @@ function activate(context) {
             );
         })
     );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('autoAcceptV2.launchInstance', () => {
+            launchNewInstance();
+        })
+    );
+
+    const launcherBtn = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
+    launcherBtn.command = 'autoAcceptV2.launchInstance';
+    launcherBtn.text = '$(add) Multi-IDE+';
+    launcherBtn.tooltip = 'Launch a new Antigravity instance with auto-port assignment';
+    launcherBtn.show();
+    context.subscriptions.push(launcherBtn);
 
     // Check CDP on activation — prompt auto-fix if port 9222 is closed
     checkAndFixCDP().then(cdpOk => {
