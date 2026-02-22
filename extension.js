@@ -474,7 +474,7 @@ foreach ($dir in $paths) {
         $files = Get-ChildItem -Path $dir -Filter "*.lnk" -Recurse -ErrorAction SilentlyContinue
         foreach ($file in $files) {
             $shortcut = $WshShell.CreateShortcut($file.FullName)
-            if ($shortcut.TargetPath -like "*Antigravity*" -or $shortcut.TargetPath -like "*Code.exe*") {
+            if ($shortcut.TargetPath -match "Antigravity") {
                 if ($shortcut.Arguments -notmatch "remote-debugging-port") {
                     $shortcut.Arguments = ($shortcut.Arguments + " " + $flag).Trim()
                     $shortcut.Save()
