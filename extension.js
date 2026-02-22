@@ -73,7 +73,7 @@ function buildPermissionScript(customTexts) {
 
             var match = false;
             // Strict match for "run ", standard startsWith for others
-            if (text === 'run ' && (nText === 'run' || nText.startsWith('run alt'))) {
+            if (text === 'run ' && (nText === 'run' || nText.startsWith('run alt') || nText.startsWith('runalt'))) {
                 match = true;
             } else if (text !== 'run ' && nText.startsWith(text)) {
                 match = true;
