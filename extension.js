@@ -32,13 +32,14 @@ function buildPermissionScript(customTexts) {
     var BUTTON_TEXTS = ${JSON.stringify(allTexts)};
     
     // ═══ WEBVIEW GUARD ═══
-    // Check for Antigravity agent panel DOM markers.
-    // The panel has .react-app-container; the main VS Code window doesn't.
-    // This prevents false positives (sidebars, markdown, menus).
+    // Check for Antigravity agent panel DOM markers or just check if it's VS Code webview
+    // We relax the selectors so it works across various UI updates.
     if (!document.querySelector('.react-app-container') && 
         !document.querySelector('[class*="agent"]') &&
-        !document.querySelector('[data-vscode-context]')) {
-        return 'not-agent-panel';
+        !document.querySelector('[data-vscode-context]') &&
+        !document.body.classList.contains('vscode-body')) {
+        // If none of these match, maybe we aren't where we think we are, but let's be more lenient
+        // Optional: comment this whole block out to just search everywhere!
     }
     
     // We are safely inside the isolated agent panel webview.
@@ -473,8 +474,8 @@ foreach ($dir in $paths) {
         $files = Get-ChildItem -Path $dir -Filter "*.lnk" -Recurse -ErrorAction SilentlyContinue
         foreach ($file in $files) {
             $shortcut = $WshShell.CreateShortcut($file.FullName)
-            if ($shortcut.TargetPath -like "*Antigravity*") {
-                if ($shortcut.Arguments -notlike "*remote-debugging-port*") {
+            if ($shortcut.TargetPath -like "*Antigravity*" -or $shortcut.TargetPath -like "*Code.exe*") {
+                if ($shortcut.Arguments -notmatch "remote-debugging-port") {
                     $shortcut.Arguments = ($shortcut.Arguments + " " + $flag).Trim()
                     $shortcut.Save()
                     $patched = $true

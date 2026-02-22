@@ -14,7 +14,7 @@
     "activationEvents": [
         "*"
     ],
-    "main": "./extension.js",
+    "main": "./dist/extension.js",
     "contributes": {
         "commands": [
             {
@@ -42,6 +42,8 @@
         }
     },
     "scripts": {
+        "build": "esbuild extension.js --bundle --platform=node --target=node16 --external:vscode --outfile=dist/extension.js",
+        "vscode:prepublish": "npm run build",
         "test": "echo \"Error: no test specified\" && exit 1"
     },
     "repository": {
@@ -57,5 +59,8 @@
     "homepage": "https://github.com/ai-dev-2024/AUTO-ALL-AntiGravity#readme",
     "dependencies": {
         "ws": "^8.19.0"
+    },
+    "devDependencies": {
+        "esbuild": "^0.27.3"
     }
 }
