@@ -1,4 +1,4 @@
-// AntiGravity AutoAccept v1.18.17
+// AntiGravity AutoAccept v1.18.18
 // Primary: VS Code Commands API with async lock
 // Secondary: Shadow DOM-piercing CDP for permission & action buttons
 
@@ -462,27 +462,52 @@ async function launchNewInstance() {
         return;
     }
 
-    const exe = process.execPath;
-    const userData = path.join(os.homedir(), '.antigravity-autoaccept', 'instances', `port${port}`);
+    // Windows paths with spaces require careful spawning
+    let exe = process.execPath;
 
-    if (!fs.existsSync(userData)) {
-        fs.mkdirSync(userData, { recursive: true });
+    // In some portable/renamed versions, execPath might point to a helper. 
+    // We want the main Antigravity/VSCode binary.
+    if (!exe.toLowerCase().includes('antigravity.exe') && !exe.toLowerCase().includes('code.exe')) {
+        // Fallback: search for Antigravity in common paths or use environment hints
+        log(`[Launcher] execPath (${exe}) doesn't look like main binary, checking environment...`);
     }
 
-    log(`[Launcher] Spawning new instance on port ${port}...`);
-    log(`[Launcher] User Data: ${userData}`);
+    const userData = path.join(os.homedir(), '.antigravity-autoaccept', 'instances', `port${port}`);
+
+    try {
+        if (!fs.existsSync(userData)) {
+            fs.mkdirSync(userData, { recursive: true });
+        }
+    } catch (e) {
+        log(`[Launcher] Failed to create user-data-dir: ${e.message}`);
+    }
+
+    log(`[Launcher] Spawning: "${exe}"`);
+    log(`[Launcher] Args: --remote-debugging-port=${port} --user-data-dir="${userData}"`);
 
     const args = [
         `--remote-debugging-port=${port}`,
         `--user-data-dir=${userData}`
     ];
 
-    cp.spawn(exe, args, {
-        detached: true,
-        stdio: 'ignore'
-    }).unref();
+    try {
+        const child = cp.spawn(`"${exe}"`, args, {
+            detached: true,
+            stdio: 'ignore',
+            shell: true // Important for Windows paths with spaces
+        });
 
-    vscode.window.showInformationMessage(`🚀 Launching NEW Antigravity window on port ${port}...`);
+        child.on('error', (err) => {
+            log(`[Launcher] Spawn error: ${err.message}`);
+            vscode.window.showErrorMessage(`Failed to launch instance: ${err.message}`);
+        });
+
+        child.unref();
+        vscode.window.showInformationMessage(`🚀 Launching NEW Antigravity window on port ${port}...`);
+    } catch (err) {
+        log(`[Launcher] Fatal spawn error: ${err.message}`);
+        vscode.window.showErrorMessage(`Fatal error launching instance: ${err.message}`);
+    }
 }
 
 async function findFreePort() {
@@ -618,7 +643,7 @@ function applyTemporarySessionRestart() {
 // ─── Activation ───────────────────────────────────────────────────────
 function activate(context) {
     outputChannel = vscode.window.createOutputChannel('AntiGravity AutoAccept');
-    log('Extension activating (v1.18.17)');
+    log('Extension activating (v1.18.18)');
 
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
     statusBarItem.command = 'autoAcceptV2.toggle';
