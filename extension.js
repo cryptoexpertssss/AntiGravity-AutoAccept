@@ -38,9 +38,13 @@ function buildPermissionScript(customTexts) {
         return 'cooldown';
     }
 
+    // ═══ FOCUS GUARD ═══
+    // If the window is not focused, we should be extremely careful about actions
+    // that might trigger Electron/Windows to bring this window to front.
+    var isFocused = document.hasFocus();
+
     function isClickable(el) {
         if (!el) return false;
-        // Don't click buttons that are already expanded (menus)
         if (el.getAttribute('aria-expanded') === 'true') return false;
         
         var tag = (el.tagName || '').toLowerCase();
@@ -55,7 +59,6 @@ function buildPermissionScript(customTexts) {
         var el = node;
         while (el && el !== document.body && el !== document.documentElement) {
             if (isClickable(el)) return el;
-            // Cross shadow DOM boundary if needed
             if (el.parentNode && el.parentNode.host) {
                 el = el.parentNode.host;
             } else {
@@ -69,14 +72,12 @@ function buildPermissionScript(customTexts) {
         var walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
         var node;
         while ((node = walker.nextNode())) {
-            // Priority 1: recurse into shadow DOMs first
             if (node.shadowRoot) {
                 var res = searchTreeForText(node.shadowRoot, text);
                 if (res) return res;
             }
             
             var nText = (node.textContent || '').replace(/[\\n\\r]+/g, '').replace(/\\s+/g, '').trim().toLowerCase();
-            
             if (nText.length > 80 || nText.length < 3) continue;
 
             var match = false;
@@ -109,7 +110,12 @@ function buildPermissionScript(customTexts) {
         var target = searchTreeForText(document.body, t);
         if (target) {
             window._antigravity_last_click_time = Date.now();
-            try { target.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(e) {}
+            
+            // Only scroll if we are already focused, to avoid focus stealing
+            if (isFocused) {
+               try { target.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(e) {}
+            }
+
             try { target.click(); } catch(e) {}
             try {
                 var evt = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
@@ -125,7 +131,9 @@ function buildPermissionScript(customTexts) {
         var eTarget = searchTreeForText(document.body, expTexts[j]);
         if (eTarget) {
             window._antigravity_last_click_time = Date.now();
-            try { eTarget.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(e) {}
+            if (isFocused) {
+               try { eTarget.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(e) {}
+            }
             try { eTarget.click(); } catch(e) {}
             return 'clicked:' + expTexts[j];
         }
