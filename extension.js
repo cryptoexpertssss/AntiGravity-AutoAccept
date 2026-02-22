@@ -22,9 +22,15 @@ const ACCEPT_COMMANDS = [
 // The agent panel runs in an isolated Chromium process (OOPIF) since
 // VS Code's migration to Out-Of-Process Iframes.
 function buildPermissionScript(customTexts) {
+    const allTexts = [
+        'run alt', 'run ', 'accept',
+        'always allow', 'allow this conversation', 'allow', 'always run',
+        ...(customTexts || [])
+    ];
+
     return `
 (function() {
-    var custom = ${JSON.stringify(customTexts || [])}.map(function(t) { return t.toLowerCase(); });
+    var BUTTON_TEXTS = ${JSON.stringify(allTexts)};
 
     function isClickable(el) {
         if (!el) return false;
@@ -36,68 +42,88 @@ function buildPermissionScript(customTexts) {
         return false;
     }
 
-    function searchTree(root, isPass2) {
-        var walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
-        var node;
-        while ((node = walker.nextNode())) {
-            if (node.shadowRoot) {
-                var res = searchTree(node.shadowRoot, isPass2);
-                if (res) return res;
-            }
-            
-            var text = (node.textContent || '').replace(/[\\n\\r]+/g, ' ').replace(/\\s+/g, ' ').trim().toLowerCase();
-            if (text.length > 60 || text.length < 3) continue;
-
-            var isRun = text.startsWith('run alt') || text === 'run' || text === 'accept';
-            var isAllow = text.startsWith('always allow') || text === 'allow' || text.startsWith('always run');
-            var isExpand = text === 'expand' || text === 'requires input';
-            var isCustom = custom.some(function(ct) { return text.startsWith(ct); });
-            
-            var matchFound = false;
-            if (!isPass2 && (isRun || isAllow || isCustom)) matchFound = true;
-            if (isPass2 && isExpand) matchFound = true;
-
-            if (matchFound) {
-                var target = node;
-                var foundClickable = isClickable(node);
-                
-                if (!foundClickable && node.closest) {
-                    var parent = node.closest('button, [role="button"], .cursor-pointer, [tabindex="0"]');
-                    if (parent && (parent.textContent || '').trim().length < 80) {
-                        target = parent;
-                        foundClickable = true;
-                    }
-                }
-                
-                if (!foundClickable && !isExpand) continue;
-
-                if (target.disabled || target.getAttribute('aria-disabled') === 'true' || 
-                    target.classList.contains('loading') || target.querySelector('.codicon-loading')) {
-                    continue;
-                }
-                
-                // Auto-scroll the button into view
-                try { target.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(e) {}
-                
-                // Fire native and synthetic clicks
-                try { target.click(); } catch(e) {}
-                try {
-                    var evt = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
-                    target.dispatchEvent(evt);
-                } catch(e) {}
-                
-                return 'clicked:' + text;
+    function findClickableParent(node) {
+        var el = node;
+        while (el && el !== document.body && el !== document.documentElement) {
+            if (isClickable(el)) return el;
+            // Cross shadow DOM boundary if needed
+            if (el.parentNode && el.parentNode.host) {
+                el = el.parentNode.host;
+            } else {
+                el = el.parentNode;
             }
         }
         return null;
     }
-    
-    var res1 = searchTree(document.body, false);
-    if (res1) return res1;
-    
-    var res2 = searchTree(document.body, true);
-    if (res2) return res2;
-    
+
+    function searchTreeForText(root, text) {
+        var walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+        var node;
+        while ((node = walker.nextNode())) {
+            // Priority 1: recurse into shadow DOMs first
+            if (node.shadowRoot) {
+                var res = searchTreeForText(node.shadowRoot, text);
+                if (res) return res;
+            }
+            
+            var nText = (node.textContent || '').replace(/[\\n\\r]+/g, ' ').replace(/\\s+/g, ' ').trim().toLowerCase();
+            
+            // Limit text size to prevent matching giant containers
+            if (nText.length > 80 || nText.length < 3) continue;
+
+            var match = false;
+            // Strict match for "run ", standard startsWith for others
+            if (text === 'run ' && (nText === 'run' || nText.startsWith('run alt'))) {
+                match = true;
+            } else if (text !== 'run ' && nText.startsWith(text)) {
+                match = true;
+            } else if (text === 'accept' && nText.includes(text)) {
+                match = true;
+            }
+
+            if (match) {
+                var target = isClickable(node) ? node : findClickableParent(node);
+                if (!target && text.includes('expand')) target = node;
+                
+                if (target) {
+                    if (target.disabled || target.getAttribute('aria-disabled') === 'true' || 
+                        (target.classList && target.classList.contains('loading')) || 
+                        (target.querySelector && target.querySelector('.codicon-loading'))) {
+                        continue; // found it, but disabled
+                    }
+                    return target;
+                }
+            }
+        }
+        return null;
+    }
+
+    // ═══ PASS 1: Ordered search to prioritize "Run" over "Always run" ═══
+    for (var i = 0; i < BUTTON_TEXTS.length; i++) {
+        var t = BUTTON_TEXTS[i];
+        var target = searchTreeForText(document.body, t);
+        if (target) {
+            try { target.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(e) {}
+            try { target.click(); } catch(e) {}
+            try {
+                var evt = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
+                target.dispatchEvent(evt);
+            } catch(e) {}
+            return 'clicked:' + t;
+        }
+    }
+
+    // ═══ PASS 2: Expand buttons ═══
+    var expTexts = ['expand', 'requires input'];
+    for (var j = 0; j < expTexts.length; j++) {
+        var eTarget = searchTreeForText(document.body, expTexts[j]);
+        if (eTarget) {
+            try { eTarget.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(e) {}
+            try { eTarget.click(); } catch(e) {}
+            return 'clicked:' + expTexts[j];
+        }
+    }
+
     return 'no-permission-button';
 })()
 `;
