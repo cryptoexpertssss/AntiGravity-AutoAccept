@@ -339,9 +339,9 @@ async function checkPermissionButtons() {
                 const pages = await cdpGetPages(port);
                 if (pages.length === 0) continue;
 
-                // Filter for webviews only — skip service workers & main window
-                const webviews = pages.filter(p => p.url && p.url.includes('vscode-webview://'));
-                log(`[CDP] Port ${port}: ${pages.length} targets, ${webviews.length} webviews`);
+                // Filter for webviews or Antigravity's specific workbench pages
+                const webviews = pages.filter(p => p.url && (p.url.includes('vscode-webview://') || p.url.includes('vscode-file://')));
+                log(`[CDP] Port ${port}: ${pages.length} targets, ${webviews.length} potential panels`);
                 if (webviews.length === 0) continue;
 
                 // Concurrent broadcast: fire script at ALL webviews simultaneously
