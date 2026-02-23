@@ -1,4 +1,4 @@
-// AntiGravity AutoAccept v1.18.18
+// AntiGravity AutoAccept v1.18.20
 // Primary: VS Code Commands API with async lock
 // Secondary: Shadow DOM-piercing CDP for permission & action buttons
 
@@ -29,7 +29,8 @@ const ACCEPT_COMMANDS = [
 function buildPermissionScript(customTexts) {
     const allTexts = [
         'run alt', 'run ', 'accept',
-        'always allow', 'allow this conversation', 'allow', 'always run',
+        'always allow', 'allow this conversation', 'allow once',
+        'allow', 'always run', 'this conversation',
         ...(customTexts || [])
     ];
 
@@ -44,9 +45,12 @@ function buildPermissionScript(customTexts) {
     }
 
     // ═══ FOCUS GUARD ═══
-    // If the window is not focused, we should be extremely careful about actions
-    // that might trigger Electron/Windows to bring this window to front.
-    var isFocused = document.hasFocus();
+    // Only proceed if this window actually has focus. 
+    // This prevents background windows from stealing focus or clicking buttons 
+    // while the user is active in another instance.
+    if (!document.hasFocus()) {
+        return 'not-focused';
+    }
 
     function isClickable(el) {
         if (!el) return false;
@@ -82,11 +86,11 @@ function buildPermissionScript(customTexts) {
                 if (res) return res;
             }
             
-            var nText = (node.textContent || '').replace(/[\\n\\r]+/g, '').replace(/\\s+/g, '').trim().toLowerCase();
+            var nText = (node.textContent || '').replace(/[\n\r]+/g, '').replace(/\s+/g, '').trim().toLowerCase();
             if (nText.length > 80 || nText.length < 3) continue;
 
             var match = false;
-            var cleanT = text.replace(/\\s+/g, '').toLowerCase();
+            var cleanT = text.replace(/\s+/g, '').toLowerCase();
             if (nText === cleanT || nText.startsWith(cleanT)) {
                 match = true;
             } else if (text === 'accept' && nText.includes(text)) {
@@ -116,10 +120,8 @@ function buildPermissionScript(customTexts) {
         if (target) {
             window._antigravity_last_click_time = Date.now();
             
-            // Only scroll if we are already focused, to avoid focus stealing
-            if (isFocused) {
-               try { target.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(e) {}
-            }
+            // REMOVED: scrollIntoView. It's too disruptive and often triggers 
+            // unexpected focus shifts or window activity.
 
             try { target.click(); } catch(e) {}
             try {
@@ -136,9 +138,7 @@ function buildPermissionScript(customTexts) {
         var eTarget = searchTreeForText(document.body, expTexts[j]);
         if (eTarget) {
             window._antigravity_last_click_time = Date.now();
-            if (isFocused) {
-               try { eTarget.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(e) {}
-            }
+            // REMOVED: scrollIntoView
             try { eTarget.click(); } catch(e) {}
             return 'clicked:' + expTexts[j];
         }
