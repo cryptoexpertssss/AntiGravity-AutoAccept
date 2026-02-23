@@ -3670,72 +3670,58 @@ function buildPermissionScript(customTexts) {
 
     // \u2550\u2550\u2550 DEBOUNCE / COOLDOWN \u2550\u2550\u2550
     // Keep cooldown short so Run/Allow prompts are not starved by nearby clicks.
-    var NOW = Date.now();
-    var IN_COOLDOWN = window._antigravity_last_click_time && (NOW - window._antigravity_last_click_time < 900);
-
-    // \u{1F680} BROAD SEARCH STRATEGY v25
-    console.log('[AutoAccept] Starting broad-search scan...');
-    
-    var allElements = document.querySelectorAll('button, [role="button"], .monaco-button, a, div[class*="button"], div[class*="btn"]');
-    console.log('[AutoAccept] Found ' + allElements.length + ' potential clickable elements');
-
-    for (var i = 0; i < allElements.length; i++) {
-        var el = allElements[i];
-        var nText = (el.textContent || '').replace(/[^a-z0-9]+/gi, '').trim().toLowerCase();
-        
-        if (nText.length < 2 || nText.length > 50) continue;
-
-        for (var j = 0; j < BUTTON_TEXTS.length; j++) {
-            var searchT = BUTTON_TEXTS[j].replace(/[^a-z0-9]+/gi, '').toLowerCase();
-            
-            if (nText === searchT || nText.includes(searchT)) {
-                console.log('[AutoAccept] MATCH FOUND! Text: "' + nText + '" matched "' + searchT + '"');
-                
-                if (el.disabled || el.getAttribute('aria-disabled') === 'true' || el.classList.contains('loading')) {
-                    console.log('[AutoAccept] Match skipped: element is disabled or loading');
-                    continue;
-                }
-
-                window._antigravity_last_click_time = Date.now();
-                console.log('[AutoAccept] Executing click on:', el);
-                
-                try { el.click(); } catch(e) {}
-                try {
-                    var evt = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
-                    el.dispatchEvent(evt);
-                } catch(e) {}
-                
-                return 'clicked:' + BUTTON_TEXTS[j];
-            }
-        }
-    }
-
-    // Fallback: search ALL elements if specific ones missed
-    console.log('[AutoAccept] Falling back to deep tree-walk...');
+    // \u{1F680} SHADOW-PIERCING SEARCH v26
     function deepScan(root) {
         var walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
         var node;
+
         while ((node = walker.nextNode())) {
+            // PIERCE SHADOW DOM
             if (node.shadowRoot) {
-                var res = deepScan(node.shadowRoot);
-                if (res) return res;
+                var sMatch = deepScan(node.shadowRoot);
+                if (sMatch) return sMatch;
             }
-            var text = (node.textContent || '').toLowerCase();
-            if (text.includes('run') && (text.includes('alt') || text.length < 10)) {
-                // Simplified isClickable and findClickableParent for deepScan
-                var target = node; // Assume node is clickable for simplicity in fallback
-                if (target) {
-                    console.log('[AutoAccept] DeepScan found fallback RUN target:', target);
-                    target.click();
-                    return 'clicked:run-deep';
+
+            var text = (node.textContent || '').replace(/[^a-z0-9]+/gi, '').trim().toLowerCase();
+            if (text.length < 2 || text.length > 60) continue;
+
+            for (var i = 0; i < BUTTON_TEXTS.length; i++) {
+                var searchT = BUTTON_TEXTS[i].replace(/[^a-z0-9]+/gi, '').toLowerCase();
+                
+                if (text === searchT || text.includes(searchT)) {
+                    // Found a candidate, now find the actual clickable element
+                    var target = node;
+                    while (target && target !== document.body) {
+                        var tag = (target.tagName || '').toLowerCase();
+                        var role = target.getAttribute('role');
+                        var cls = target.className || '';
+                        
+                        if (tag === 'button' || role === 'button' || cls.includes('button') || cls.includes('monaco-button')) {
+                            console.log('[AutoAccept] CLICKING: "' + text + '" on element:', target);
+                            
+                            // Cooldown bypass for high-priority prompt components
+                            var bypass = (text.includes('run') || text.includes('accept'));
+                            if (IN_COOLDOWN && !bypass) return null;
+
+                            window._antigravity_last_click_time = Date.now();
+                            try { target.click(); } catch(e) {}
+                            try {
+                                var evt = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
+                                target.dispatchEvent(evt);
+                            } catch(e) {}
+                            return 'clicked:' + BUTTON_TEXTS[i];
+                        }
+                        target = target.parentNode || (target.getRootNode ? target.getRootNode().host : null);
+                    }
                 }
             }
         }
         return null;
     }
 
-    var deepRes = deepScan(document.body);
-    if (deepRes) return deepRes;
+    console.log('[AutoAccept] Starting Shadow-Pierce scan...');
+    var res = deepScan(document.body);
+    if (res) return res;
 
     return 'no-permission-button';
 })()
@@ -3747,7 +3733,6 @@ var pollIntervalId = null;
 var cdpIntervalId = null;
 var statusBarItem = null;
 var outputChannel = null;
-var lastExpandTimes = {};
 var isCdpBusy = false;
 function log(msg) {
   if (outputChannel) {
@@ -3836,25 +3821,26 @@ async function checkPermissionButtons() {
       try {
         const pages = await cdpGetPages(port);
         if (pages.length === 0) continue;
-        const webviews = pages.filter(
-          (p) => p.url && !p.url.startsWith("devtools://") && !p.url.startsWith("chrome-extension://") && !p.url.startsWith("chrome-devtools://")
-        );
-        log(`[CDP] Port ${port}: ${pages.length} targets, ${webviews.length} candidates`);
+        const webviews = pages.filter((page) => {
+          if (!page.url || page.url.length < 5) return false;
+          const isInternal = page.url.startsWith("devtools://") || page.url.startsWith("chrome-extension://") || page.url.startsWith("chrome-devtools://");
+          const isApp = page.url.includes("vscode-webview://") || page.url.includes("vscode-file://") || page.url.includes("http://localhost:");
+          const isWorkbench = page.title && page.title.includes("Workbench");
+          if (!isInternal && (isApp || isWorkbench)) {
+            log(`[CDP] Including Target: ${page.title || "Untitled"} (${page.url.substring(0, 50)}...)`);
+            return true;
+          }
+          return false;
+        });
+        log(`[CDP] Port ${port}: ${pages.length} targets, ${webviews.length} filtered webviews`);
         if (webviews.length === 0) continue;
         const clickPromises = webviews.map(async (page) => {
           try {
             const result = await cdpEvaluate(page.webSocketDebuggerUrl, script);
             const shortId = (page.id || "").substring(0, 6) || "unknown";
+            const title = page.title || "Webview";
             if (result && result.startsWith("clicked:")) {
-              const targetId = page.id || page.webSocketDebuggerUrl;
-              if (result.includes("expand") || result.includes("requires input")) {
-                const now = Date.now();
-                if (lastExpandTimes[targetId] && now - lastExpandTimes[targetId] < 8e3) {
-                  return;
-                }
-                lastExpandTimes[targetId] = now;
-              }
-              log(`[CDP] \u2713 Thread [${shortId}] -> ${result}`);
+              log(`[CDP] \u2713 Match in [${title}] (${shortId}) -> ${result}`);
             }
           } catch (e) {
           }
@@ -4089,7 +4075,7 @@ function applyTemporarySessionRestart() {
 }
 function activate(context) {
   outputChannel = vscode.window.createOutputChannel("AntiGravity AutoAccept");
-  log("Extension activating (v1.18.25)");
+  log("Extension activating (v1.18.27)");
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBarItem.command = "antigravity-autoaccept.toggle";
   context.subscriptions.push(statusBarItem);
