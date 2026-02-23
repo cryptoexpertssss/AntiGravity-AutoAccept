@@ -3647,7 +3647,9 @@ var ACCEPT_COMMANDS = [
   "antigravity.agent.acceptAgentStep",
   "antigravity.terminalCommand.accept",
   "antigravity.terminalCommand.run",
-  "antigravity.command.accept"
+  "antigravity.command.accept",
+  "antigravity.prioritized.agentAcceptFocusedHunk",
+  "antigravity.prioritized.chat.accept"
 ];
 function buildPermissionScript(customTexts) {
   const allTexts = [
@@ -4068,7 +4070,7 @@ function applyTemporarySessionRestart() {
 }
 function activate(context) {
   outputChannel = vscode.window.createOutputChannel("AntiGravity AutoAccept");
-  log("Extension activating (v1.18.28)");
+  log("Extension activating (v1.18.29)");
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBarItem.command = "antigravity-autoaccept.toggle";
   context.subscriptions.push(statusBarItem);
