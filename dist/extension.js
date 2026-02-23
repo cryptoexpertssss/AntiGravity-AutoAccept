@@ -3686,8 +3686,10 @@ function buildPermissionScript(customTexts) {
         var tag = (el.tagName || '').toLowerCase();
         if (tag === 'button' || tag.includes('button') || tag.includes('btn')) return true;
         if (el.getAttribute('role') === 'button' || el.getAttribute('tabindex') === '0') return true;
-        if (el.classList && el.classList.contains('cursor-pointer')) return true;
+        if (el.classList && (el.classList.contains('cursor-pointer') || el.classList.contains('monaco-button') || el.classList.contains('button'))) return true;
         if (typeof el.onclick === 'function') return true;
+        // Permissive: if it has very few text characters and is likely a UI element
+        if (tag === 'div' && el.classList && el.classList.length > 0 && el.textContent && el.textContent.length < 30) return true;
         return false;
     }
 
@@ -3713,15 +3715,14 @@ function buildPermissionScript(customTexts) {
                 if (res) return res;
             }
             
-            var nText = (node.textContent || '').replace(/[
-\r]+/g, '').replace(/s+/g, '').trim().toLowerCase();
-            if (nText.length > 80 || nText.length < 3) continue;
+            var nText = (node.textContent || '').replace(/[^a-z0-9]+/gi, '').trim().toLowerCase();
+            if (nText.length > 100 || nText.length < 2) continue;
 
             var match = false;
-            var cleanT = text.replace(/s+/g, '').toLowerCase();
+            var cleanT = text.replace(/[^a-z0-9]+/gi, '').toLowerCase();
             
-            // Match exact, start, or contains for robustness
-            if (nText === cleanT || nText.startsWith(cleanT) || nText.includes(cleanT)) {
+            // Match exact or contains for maximum robustness
+            if (nText === cleanT || nText.includes(cleanT) || (cleanT.length > 3 && nText.includes(cleanT.substring(0, 4)))) {
                 match = true;
             }
 
