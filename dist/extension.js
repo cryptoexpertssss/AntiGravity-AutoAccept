@@ -3669,106 +3669,73 @@ function buildPermissionScript(customTexts) {
     var BUTTON_TEXTS = ${JSON.stringify(allTexts)};
 
     // \u2550\u2550\u2550 DEBOUNCE / COOLDOWN \u2550\u2550\u2550
+    // Keep cooldown short so Run/Allow prompts are not starved by nearby clicks.
     var NOW = Date.now();
-    if (window._antigravity_last_click_time && (NOW - window._antigravity_last_click_time < 3000)) {
-        return 'cooldown';
-    }
+    var IN_COOLDOWN = window._antigravity_last_click_time && (NOW - window._antigravity_last_click_time < 900);
 
-    // \u2550\u2550\u2550 VISIBILITY GUARD \u2550\u2550\u2550
-    // In webviews, document.hasFocus() can be unreliable. 
-    // We check visibility instead to ensure we don't click in hidden background tabs.
-    if (document.visibilityState === 'hidden') {
-        return 'hidden';
-    }
+    // \u{1F680} BROAD SEARCH STRATEGY v25
+    console.log('[AutoAccept] Starting broad-search scan...');
+    
+    var allElements = document.querySelectorAll('button, [role="button"], .monaco-button, a, div[class*="button"], div[class*="btn"]');
+    console.log('[AutoAccept] Found ' + allElements.length + ' potential clickable elements');
 
-    function isClickable(el) {
-        if (!el) return false;
-        if (el.getAttribute('aria-expanded') === 'true') return false;
+    for (var i = 0; i < allElements.length; i++) {
+        var el = allElements[i];
+        var nText = (el.textContent || '').replace(/[^a-z0-9]+/gi, '').trim().toLowerCase();
         
-        var tag = (el.tagName || '').toLowerCase();
-        if (tag === 'button' || tag.includes('button') || tag.includes('btn')) return true;
-        if (el.getAttribute('role') === 'button' || el.getAttribute('tabindex') === '0') return true;
-        if (el.classList && (el.classList.contains('cursor-pointer') || el.classList.contains('monaco-button') || el.classList.contains('button'))) return true;
-        if (typeof el.onclick === 'function') return true;
-        // Permissive: if it has very few text characters and is likely a UI element
-        if (tag === 'div' && el.classList && el.classList.length > 0 && el.textContent && el.textContent.length < 30) return true;
-        return false;
-    }
+        if (nText.length < 2 || nText.length > 50) continue;
 
-    function findClickableParent(node) {
-        var el = node;
-        while (el && el !== document.body && el !== document.documentElement) {
-            if (isClickable(el)) return el;
-            if (el.parentNode && el.parentNode.host) {
-                el = el.parentNode.host;
-            } else {
-                el = el.parentNode;
+        for (var j = 0; j < BUTTON_TEXTS.length; j++) {
+            var searchT = BUTTON_TEXTS[j].replace(/[^a-z0-9]+/gi, '').toLowerCase();
+            
+            if (nText === searchT || nText.includes(searchT)) {
+                console.log('[AutoAccept] MATCH FOUND! Text: "' + nText + '" matched "' + searchT + '"');
+                
+                if (el.disabled || el.getAttribute('aria-disabled') === 'true' || el.classList.contains('loading')) {
+                    console.log('[AutoAccept] Match skipped: element is disabled or loading');
+                    continue;
+                }
+
+                window._antigravity_last_click_time = Date.now();
+                console.log('[AutoAccept] Executing click on:', el);
+                
+                try { el.click(); } catch(e) {}
+                try {
+                    var evt = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
+                    el.dispatchEvent(evt);
+                } catch(e) {}
+                
+                return 'clicked:' + BUTTON_TEXTS[j];
             }
         }
-        return null;
     }
 
-    function searchTreeForText(root, text) {
+    // Fallback: search ALL elements if specific ones missed
+    console.log('[AutoAccept] Falling back to deep tree-walk...');
+    function deepScan(root) {
         var walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
         var node;
         while ((node = walker.nextNode())) {
             if (node.shadowRoot) {
-                var res = searchTreeForText(node.shadowRoot, text);
+                var res = deepScan(node.shadowRoot);
                 if (res) return res;
             }
-            
-            var nText = (node.textContent || '').replace(/[^a-z0-9]+/gi, '').trim().toLowerCase();
-            if (nText.length > 100 || nText.length < 2) continue;
-
-            var match = false;
-            var cleanT = text.replace(/[^a-z0-9]+/gi, '').toLowerCase();
-            
-            // Match exact or contains for maximum robustness
-            if (nText === cleanT || nText.includes(cleanT) || (cleanT.length > 3 && nText.includes(cleanT.substring(0, 4)))) {
-                match = true;
-            }
-
-            if (match) {
-                var target = isClickable(node) ? node : findClickableParent(node);
-                if (!target && text.includes('expand')) target = node;
-                
+            var text = (node.textContent || '').toLowerCase();
+            if (text.includes('run') && (text.includes('alt') || text.length < 10)) {
+                // Simplified isClickable and findClickableParent for deepScan
+                var target = node; // Assume node is clickable for simplicity in fallback
                 if (target) {
-                    if (target.disabled || target.getAttribute('aria-disabled') === 'true' || 
-                        (target.classList && target.classList.contains('loading')) || 
-                        (target.querySelector && target.querySelector('.codicon-loading'))) {
-                        continue; 
-                    }
-                    return target;
+                    console.log('[AutoAccept] DeepScan found fallback RUN target:', target);
+                    target.click();
+                    return 'clicked:run-deep';
                 }
             }
         }
         return null;
     }
 
-    for (var i = 0; i < BUTTON_TEXTS.length; i++) {
-        var t = BUTTON_TEXTS[i];
-        var target = searchTreeForText(document.body, t);
-        if (target) {
-            console.log('[AutoAccept] Found button for text: ' + t);
-            window._antigravity_last_click_time = Date.now();
-            
-            try { target.click(); } catch(e) {}
-            try {
-                var evt = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
-                target.dispatchEvent(evt);
-            } catch(e) {}
-            return 'clicked:' + t;
-        }
-    }
-
-    // Pass 2: Aggressive "Run" check if first pass missed
-    var runTarget = searchTreeForText(document.body, 'run');
-    if (runTarget) {
-        console.log('[AutoAccept] Fallback Run match found!');
-        window._antigravity_last_click_time = Date.now();
-        try { runTarget.click(); } catch(e) {}
-        return 'clicked:run-fallback';
-    }
+    var deepRes = deepScan(document.body);
+    if (deepRes) return deepRes;
 
     return 'no-permission-button';
 })()
@@ -3869,8 +3836,10 @@ async function checkPermissionButtons() {
       try {
         const pages = await cdpGetPages(port);
         if (pages.length === 0) continue;
-        const webviews = pages.filter((p) => p.url && (p.url.includes("vscode-webview://") || p.url.includes("vscode-file://")));
-        log(`[CDP] Port ${port}: ${pages.length} targets, ${webviews.length} potential panels`);
+        const webviews = pages.filter(
+          (p) => p.url && !p.url.startsWith("devtools://") && !p.url.startsWith("chrome-extension://") && !p.url.startsWith("chrome-devtools://")
+        );
+        log(`[CDP] Port ${port}: ${pages.length} targets, ${webviews.length} candidates`);
         if (webviews.length === 0) continue;
         const clickPromises = webviews.map(async (page) => {
           try {
@@ -4120,7 +4089,7 @@ function applyTemporarySessionRestart() {
 }
 function activate(context) {
   outputChannel = vscode.window.createOutputChannel("AntiGravity AutoAccept");
-  log("Extension activating (v1.18.24)");
+  log("Extension activating (v1.18.25)");
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBarItem.command = "antigravity-autoaccept.toggle";
   context.subscriptions.push(statusBarItem);
