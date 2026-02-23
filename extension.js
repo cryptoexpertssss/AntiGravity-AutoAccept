@@ -1,4 +1,4 @@
-// AntiGravity AutoAccept v1.18.20
+// AntiGravity AutoAccept v1.18.21
 // Primary: VS Code Commands API with async lock
 // Secondary: Shadow DOM-piercing CDP for permission & action buttons
 
@@ -482,8 +482,9 @@ async function launchNewInstance() {
         log(`[Launcher] Failed to create user-data-dir: ${e.message}`);
     }
 
-    log(`[Launcher] Spawning: "${exe}"`);
-    log(`[Launcher] Args: --remote-debugging-port=${port} --user-data-dir="${userData}"`);
+    log(`[Launcher] execPath: ${exe}`);
+    log(`[Launcher] Port: ${port}`);
+    log(`[Launcher] UserData: ${userData}`);
 
     const args = [
         `--remote-debugging-port=${port}`,
@@ -491,22 +492,24 @@ async function launchNewInstance() {
     ];
 
     try {
-        const child = cp.spawn(`"${exe}"`, args, {
+        // use shell: true but let Node handle the quoting of the command itself
+        const child = cp.spawn(exe, args, {
             detached: true,
             stdio: 'ignore',
-            shell: true // Important for Windows paths with spaces
+            shell: true
         });
 
         child.on('error', (err) => {
-            log(`[Launcher] Spawn error: ${err.message}`);
-            vscode.window.showErrorMessage(`Failed to launch instance: ${err.message}`);
+            log(`[Launcher] ❌ Error signal: ${err.message}`);
+            vscode.window.showErrorMessage(`Launcher Error: ${err.message}`);
         });
 
         child.unref();
-        vscode.window.showInformationMessage(`🚀 Launching NEW Antigravity window on port ${port}...`);
+        log(`[Launcher] ✅ Process spawned (PID: ${child.pid || 'unknown'})`);
+        vscode.window.showInformationMessage(`🚀 Launching NEW IDE on port ${port}...`);
     } catch (err) {
-        log(`[Launcher] Fatal spawn error: ${err.message}`);
-        vscode.window.showErrorMessage(`Fatal error launching instance: ${err.message}`);
+        log(`[Launcher] ❌ Fatal: ${err.message}`);
+        vscode.window.showErrorMessage(`Fatal Launcher Error: ${err.message}`);
     }
 }
 

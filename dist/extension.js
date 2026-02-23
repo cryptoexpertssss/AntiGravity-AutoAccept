@@ -3964,28 +3964,29 @@ async function launchNewInstance() {
   } catch (e) {
     log(`[Launcher] Failed to create user-data-dir: ${e.message}`);
   }
-  log(`[Launcher] Spawning: "${exe}"`);
-  log(`[Launcher] Args: --remote-debugging-port=${port} --user-data-dir="${userData}"`);
+  log(`[Launcher] execPath: ${exe}`);
+  log(`[Launcher] Port: ${port}`);
+  log(`[Launcher] UserData: ${userData}`);
   const args = [
     `--remote-debugging-port=${port}`,
     `--user-data-dir=${userData}`
   ];
   try {
-    const child = cp.spawn(`"${exe}"`, args, {
+    const child = cp.spawn(exe, args, {
       detached: true,
       stdio: "ignore",
       shell: true
-      // Important for Windows paths with spaces
     });
     child.on("error", (err) => {
-      log(`[Launcher] Spawn error: ${err.message}`);
-      vscode.window.showErrorMessage(`Failed to launch instance: ${err.message}`);
+      log(`[Launcher] \u274C Error signal: ${err.message}`);
+      vscode.window.showErrorMessage(`Launcher Error: ${err.message}`);
     });
     child.unref();
-    vscode.window.showInformationMessage(`\u{1F680} Launching NEW Antigravity window on port ${port}...`);
+    log(`[Launcher] \u2705 Process spawned (PID: ${child.pid || "unknown"})`);
+    vscode.window.showInformationMessage(`\u{1F680} Launching NEW IDE on port ${port}...`);
   } catch (err) {
-    log(`[Launcher] Fatal spawn error: ${err.message}`);
-    vscode.window.showErrorMessage(`Fatal error launching instance: ${err.message}`);
+    log(`[Launcher] \u274C Fatal: ${err.message}`);
+    vscode.window.showErrorMessage(`Fatal Launcher Error: ${err.message}`);
   }
 }
 async function findFreePort() {
