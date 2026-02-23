@@ -3672,12 +3672,11 @@ function buildPermissionScript(customTexts) {
         return 'cooldown';
     }
 
-    // \u2550\u2550\u2550 FOCUS GUARD \u2550\u2550\u2550
-    // Only proceed if this window actually has focus. 
-    // This prevents background windows from stealing focus or clicking buttons 
-    // while the user is active in another instance.
-    if (!document.hasFocus()) {
-        return 'not-focused';
+    // \u2550\u2550\u2550 VISIBILITY GUARD \u2550\u2550\u2550
+    // In webviews, document.hasFocus() can be unreliable. 
+    // We check visibility instead to ensure we don't click in hidden background tabs.
+    if (document.visibilityState === 'hidden') {
+        return 'hidden';
     }
 
     function isClickable(el) {
@@ -3720,9 +3719,9 @@ function buildPermissionScript(customTexts) {
 
             var match = false;
             var cleanT = text.replace(/s+/g, '').toLowerCase();
-            if (nText === cleanT || nText.startsWith(cleanT)) {
-                match = true;
-            } else if (text === 'accept' && nText.includes(text)) {
+            
+            // Match exact, start, or contains for robustness
+            if (nText === cleanT || nText.startsWith(cleanT) || nText.includes(cleanT)) {
                 match = true;
             }
 
@@ -3964,25 +3963,32 @@ async function launchNewInstance() {
   } catch (e) {
     log(`[Launcher] Failed to create user-data-dir: ${e.message}`);
   }
-  log(`[Launcher] execPath: ${exe}`);
-  log(`[Launcher] Port: ${port}`);
-  log(`[Launcher] UserData: ${userData}`);
-  const args = [
+  log(`[Launcher] Attempting launch with execPath: ${exe}`);
+  log(`[Launcher] Assigned Port: ${port}`);
+  log(`[Launcher] UserData Path: ${userData}`);
+  const launchArgs = [
     `--remote-debugging-port=${port}`,
-    `--user-data-dir=${userData}`
+    `--user-data-dir="${userData}"`,
+    `--new-window`
   ];
   try {
-    const child = cp.spawn(exe, args, {
-      detached: true,
-      stdio: "ignore",
-      shell: true
-    });
-    child.on("error", (err) => {
-      log(`[Launcher] \u274C Error signal: ${err.message}`);
-      vscode.window.showErrorMessage(`Launcher Error: ${err.message}`);
-    });
-    child.unref();
-    log(`[Launcher] \u2705 Process spawned (PID: ${child.pid || "unknown"})`);
+    if (process.platform === "win32") {
+      const fullCmd = `start "" "${exe}" ${launchArgs.join(" ")}`;
+      log(`[Launcher] Windows Spawning: ${fullCmd}`);
+      cp.exec(fullCmd, (err) => {
+        if (err) {
+          log(`[Launcher] \u274C Exec error: ${err.message}`);
+          vscode.window.showErrorMessage(`Launcher Hook Failed: ${err.message}`);
+        }
+      });
+    } else {
+      const child = cp.spawn(exe, launchArgs, {
+        detached: true,
+        stdio: "ignore"
+      });
+      child.unref();
+    }
+    log(`[Launcher] \u2705 Launch sequence initiated for port ${port}`);
     vscode.window.showInformationMessage(`\u{1F680} Launching NEW IDE on port ${port}...`);
   } catch (err) {
     log(`[Launcher] \u274C Fatal: ${err.message}`);
@@ -4115,11 +4121,11 @@ function activate(context) {
   outputChannel = vscode.window.createOutputChannel("AntiGravity AutoAccept");
   log("Extension activating (v1.18.18)");
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  statusBarItem.command = "autoAcceptV2.toggle";
+  statusBarItem.command = "antigravity-autoaccept.toggle";
   context.subscriptions.push(statusBarItem);
   statusBarItem.show();
   context.subscriptions.push(
-    vscode.commands.registerCommand("autoAcceptV2.toggle", () => {
+    vscode.commands.registerCommand("antigravity-autoaccept.toggle", () => {
       isEnabled = !isEnabled;
       log(`Toggled: ${isEnabled ? "ON" : "OFF"}`);
       if (isEnabled) {
@@ -4135,12 +4141,12 @@ function activate(context) {
     })
   );
   context.subscriptions.push(
-    vscode.commands.registerCommand("autoAcceptV2.launchInstance", () => {
+    vscode.commands.registerCommand("antigravity-autoaccept.launchInstance", () => {
       launchNewInstance();
     })
   );
   const launcherBtn = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
-  launcherBtn.command = "autoAcceptV2.launchInstance";
+  launcherBtn.command = "antigravity-autoaccept.launchInstance";
   launcherBtn.text = "$(add) Multi-IDE+";
   launcherBtn.tooltip = "Launch a new Antigravity instance with auto-port assignment";
   launcherBtn.show();

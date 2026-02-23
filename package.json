@@ -2,7 +2,7 @@
     "name": "antigravity-autoaccept",
     "displayName": "AntiGravity AutoAccept",
     "description": "Auto-accept Run, Accept, and Always Allow buttons in Antigravity via CDP with Webview Guard isolation.",
-    "version": "1.18.21",
+    "version": "1.18.22",
     "publisher": "YazanBaker",
     "icon": "images/icon.png",
     "engines": {
@@ -18,8 +18,12 @@
     "contributes": {
         "commands": [
             {
-                "command": "autoAcceptV2.toggle",
-                "title": "Auto Accept V2: Toggle ON/OFF"
+                "command": "antigravity-autoaccept.toggle",
+                "title": "AntiGravity AutoAccept: Toggle ON/OFF"
+            },
+            {
+                "command": "antigravity-autoaccept.launchInstance",
+                "title": "AntiGravity AutoAccept: Launch Multi-IDE Instance"
             }
         ],
         "configuration": {
