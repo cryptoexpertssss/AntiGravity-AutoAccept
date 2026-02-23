@@ -3644,12 +3644,10 @@ var path = require("path");
 var os = require("os");
 var net = require("net");
 var ACCEPT_COMMANDS = [
-  // DISABLING COMMAND POLLING: These internal commands often cause 
-  // "auto-scrolling" or focus stealing. We rely on CDP instead.
-  // 'antigravity.agent.acceptAgentStep',
-  // 'antigravity.terminalCommand.accept',
-  // 'antigravity.terminalCommand.run',
-  // ...
+  "antigravity.agent.acceptAgentStep",
+  "antigravity.terminalCommand.accept",
+  "antigravity.terminalCommand.run",
+  "antigravity.command.accept"
 ];
 function buildPermissionScript(customTexts) {
   const allTexts = [
@@ -3670,48 +3668,21 @@ function buildPermissionScript(customTexts) {
 
     // \u2550\u2550\u2550 DEBOUNCE / COOLDOWN \u2550\u2550\u2550
     // Keep cooldown short so Run/Allow prompts are not starved by nearby clicks.
-    // \u{1F680} SHADOW-PIERCING SEARCH v26
-    function deepScan(root) {
-        var walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
-        var node;
-
-        while ((node = walker.nextNode())) {
-            // PIERCE SHADOW DOM
-            if (node.shadowRoot) {
-                var sMatch = deepScan(node.shadowRoot);
-                if (sMatch) return sMatch;
-            }
-
-            var text = (node.textContent || '').replace(/[^a-z0-9]+/gi, '').trim().toLowerCase();
-            if (text.length < 2 || text.length > 60) continue;
-
-            for (var i = 0; i < BUTTON_TEXTS.length; i++) {
-                var searchT = BUTTON_TEXTS[i].replace(/[^a-z0-9]+/gi, '').toLowerCase();
-                
-                if (text === searchT || text.includes(searchT)) {
-                    // Found a candidate, now find the actual clickable element
-                    var target = node;
-                    while (target && target !== document.body) {
-                        var tag = (target.tagName || '').toLowerCase();
-                        var role = target.getAttribute('role');
-                        var cls = target.className || '';
-                        
-                        if (tag === 'button' || role === 'button' || cls.includes('button') || cls.includes('monaco-button')) {
-                            console.log('[AutoAccept] CLICKING: "' + text + '" on element:', target);
-                            
-                            // Cooldown bypass for high-priority prompt components
-                            var bypass = (text.includes('run') || text.includes('accept'));
-                            if (IN_COOLDOWN && !bypass) return null;
-
-                            window._antigravity_last_click_time = Date.now();
-                            try { target.click(); } catch(e) {}
-                            try {
-                                var evt = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
-                                target.dispatchEvent(evt);
-                            } catch(e) {}
-                            return 'clicked:' + BUTTON_TEXTS[i];
-                        }
-                        target = target.parentNode || (target.getRootNode ? target.getRootNode().host : null);
+    // \u{1F680} HYBRID SEARCH v28 (Speed + Shadow Pierce)
+    function findAndClick() {
+        // Step 1: Broad search for common button patterns
+        var selectors = ['button', '[role="button"]', '.monaco-button', 'a.button'];
+        for (var s = 0; s < selectors.length; s++) {
+            var elements = document.querySelectorAll(selectors[s]);
+            for (var e = 0; e < elements.length; e++) {
+                var el = elements[e];
+                var txt = (el.textContent || '').replace(/[^a-z0-9]+/gi, '').trim().toLowerCase();
+                for (var b = 0; b < BUTTON_TEXTS.length; b++) {
+                    var bt = BUTTON_TEXTS[b].replace(/[^a-z0-9]+/gi, '').toLowerCase();
+                    if (txt === bt || txt.includes(bt)) {
+                        console.log('[AutoAccept] CLICKING: ' + txt);
+                        el.click();
+                        return 'clicked:' + BUTTON_TEXTS[b];
                     }
                 }
             }
@@ -3719,11 +3690,31 @@ function buildPermissionScript(customTexts) {
         return null;
     }
 
-    console.log('[AutoAccept] Starting Shadow-Pierce scan...');
-    var res = deepScan(document.body);
-    if (res) return res;
+    var result = findAndClick();
+    if (result) return result;
 
-    return 'no-permission-button';
+    // Step 2: Recursive fallback for nested Shadow DOMs
+    function deepScan(root) {
+        var walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+        var node;
+        while ((node = walker.nextNode())) {
+            if (node.shadowRoot) {
+                var res = deepScan(node.shadowRoot);
+                if (res) return res;
+            }
+            var text = (node.textContent || '').replace(/[^a-z0-9]+/gi, '').trim().toLowerCase();
+            for (var i = 0; i < BUTTON_TEXTS.length; i++) {
+                var searchT = BUTTON_TEXTS[i].replace(/[^a-z0-9]+/gi, '').toLowerCase();
+                if (text === searchT || text.includes(searchT)) {
+                    node.click();
+                    return 'clicked:' + BUTTON_TEXTS[i];
+                }
+            }
+        }
+        return null;
+    }
+
+    return deepScan(document.body) || 'no-button';
 })()
 `;
 }
@@ -3863,14 +3854,16 @@ function startPolling() {
   log(`Polling started (every ${interval}ms, ${ACCEPT_COMMANDS.length} commands)`);
   pollIntervalId = setInterval(async () => {
     if (!isEnabled || isAccepting) return;
+    if (!vscode.window.state.focused) return;
     isAccepting = true;
     const safetyTimer = setTimeout(() => {
       isAccepting = false;
     }, 3e3);
     try {
-      await Promise.allSettled(
-        ACCEPT_COMMANDS.map((cmd) => vscode.commands.executeCommand(cmd))
-      );
+      for (const cmd of ACCEPT_COMMANDS) {
+        await vscode.commands.executeCommand(cmd).then(() => {
+        });
+      }
     } catch (e) {
     } finally {
       clearTimeout(safetyTimer);
@@ -4075,7 +4068,7 @@ function applyTemporarySessionRestart() {
 }
 function activate(context) {
   outputChannel = vscode.window.createOutputChannel("AntiGravity AutoAccept");
-  log("Extension activating (v1.18.27)");
+  log("Extension activating (v1.18.28)");
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBarItem.command = "antigravity-autoaccept.toggle";
   context.subscriptions.push(statusBarItem);

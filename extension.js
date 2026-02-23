@@ -1,4 +1,4 @@
-// AntiGravity AutoAccept v1.18.27
+// AntiGravity AutoAccept v1.18.28
 // Primary: VS Code Commands API with async lock
 // Secondary: Shadow DOM-piercing CDP for permission & action buttons
 
@@ -16,12 +16,10 @@ const net = require('net');
 // chatEditing.acceptAllFiles cause sidebar interference (Outline toggling,
 // folder collapsing) when the agent panel lacks focus.
 const ACCEPT_COMMANDS = [
-    // DISABLING COMMAND POLLING: These internal commands often cause 
-    // "auto-scrolling" or focus stealing. We rely on CDP instead.
-    // 'antigravity.agent.acceptAgentStep',
-    // 'antigravity.terminalCommand.accept',
-    // 'antigravity.terminalCommand.run',
-    // ...
+    'antigravity.agent.acceptAgentStep',
+    'antigravity.terminalCommand.accept',
+    'antigravity.terminalCommand.run',
+    'antigravity.command.accept',
 ];
 
 // ─── Webview-Isolated Permission Clicker ──────────────────────────────
@@ -42,48 +40,21 @@ function buildPermissionScript(customTexts) {
 
     // ═══ DEBOUNCE / COOLDOWN ═══
     // Keep cooldown short so Run/Allow prompts are not starved by nearby clicks.
-    // 🚀 SHADOW-PIERCING SEARCH v26
-    function deepScan(root) {
-        var walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
-        var node;
-
-        while ((node = walker.nextNode())) {
-            // PIERCE SHADOW DOM
-            if (node.shadowRoot) {
-                var sMatch = deepScan(node.shadowRoot);
-                if (sMatch) return sMatch;
-            }
-
-            var text = (node.textContent || '').replace(/[^a-z0-9]+/gi, '').trim().toLowerCase();
-            if (text.length < 2 || text.length > 60) continue;
-
-            for (var i = 0; i < BUTTON_TEXTS.length; i++) {
-                var searchT = BUTTON_TEXTS[i].replace(/[^a-z0-9]+/gi, '').toLowerCase();
-                
-                if (text === searchT || text.includes(searchT)) {
-                    // Found a candidate, now find the actual clickable element
-                    var target = node;
-                    while (target && target !== document.body) {
-                        var tag = (target.tagName || '').toLowerCase();
-                        var role = target.getAttribute('role');
-                        var cls = target.className || '';
-                        
-                        if (tag === 'button' || role === 'button' || cls.includes('button') || cls.includes('monaco-button')) {
-                            console.log('[AutoAccept] CLICKING: "' + text + '" on element:', target);
-                            
-                            // Cooldown bypass for high-priority prompt components
-                            var bypass = (text.includes('run') || text.includes('accept'));
-                            if (IN_COOLDOWN && !bypass) return null;
-
-                            window._antigravity_last_click_time = Date.now();
-                            try { target.click(); } catch(e) {}
-                            try {
-                                var evt = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
-                                target.dispatchEvent(evt);
-                            } catch(e) {}
-                            return 'clicked:' + BUTTON_TEXTS[i];
-                        }
-                        target = target.parentNode || (target.getRootNode ? target.getRootNode().host : null);
+    // 🚀 HYBRID SEARCH v28 (Speed + Shadow Pierce)
+    function findAndClick() {
+        // Step 1: Broad search for common button patterns
+        var selectors = ['button', '[role="button"]', '.monaco-button', 'a.button'];
+        for (var s = 0; s < selectors.length; s++) {
+            var elements = document.querySelectorAll(selectors[s]);
+            for (var e = 0; e < elements.length; e++) {
+                var el = elements[e];
+                var txt = (el.textContent || '').replace(/[^a-z0-9]+/gi, '').trim().toLowerCase();
+                for (var b = 0; b < BUTTON_TEXTS.length; b++) {
+                    var bt = BUTTON_TEXTS[b].replace(/[^a-z0-9]+/gi, '').toLowerCase();
+                    if (txt === bt || txt.includes(bt)) {
+                        console.log('[AutoAccept] CLICKING: ' + txt);
+                        el.click();
+                        return 'clicked:' + BUTTON_TEXTS[b];
                     }
                 }
             }
@@ -91,11 +62,31 @@ function buildPermissionScript(customTexts) {
         return null;
     }
 
-    console.log('[AutoAccept] Starting Shadow-Pierce scan...');
-    var res = deepScan(document.body);
-    if (res) return res;
+    var result = findAndClick();
+    if (result) return result;
 
-    return 'no-permission-button';
+    // Step 2: Recursive fallback for nested Shadow DOMs
+    function deepScan(root) {
+        var walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+        var node;
+        while ((node = walker.nextNode())) {
+            if (node.shadowRoot) {
+                var res = deepScan(node.shadowRoot);
+                if (res) return res;
+            }
+            var text = (node.textContent || '').replace(/[^a-z0-9]+/gi, '').trim().toLowerCase();
+            for (var i = 0; i < BUTTON_TEXTS.length; i++) {
+                var searchT = BUTTON_TEXTS[i].replace(/[^a-z0-9]+/gi, '').toLowerCase();
+                if (text === searchT || text.includes(searchT)) {
+                    node.click();
+                    return 'clicked:' + BUTTON_TEXTS[i];
+                }
+            }
+        }
+        return null;
+    }
+
+    return deepScan(document.body) || 'no-button';
 })()
 `;
 }
@@ -109,6 +100,18 @@ let statusBarItem = null;
 let outputChannel = null;
 let lastExpandTimes = {}; // Per-target cooldown to prevent expand toggle loops
 let isCdpBusy = false; // Async lock for CDP polling — prevents overlapping broadcasts
+
+// Helper for visual feedback
+function showSuccess(buttonName) {
+    const originalText = statusBarItem.text;
+    statusBarItem.text = `$(check) ${buttonName} Accepted! ✓`;
+    statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+    setTimeout(() => {
+        statusBarItem.text = originalText;
+        statusBarItem.backgroundColor = undefined;
+    }, 3000);
+    log(`✓ Automatically accepted: ${buttonName}`);
+}
 
 function log(msg) {
     if (outputChannel) {
@@ -377,16 +380,25 @@ function startPolling() {
     const interval = config.get('pollInterval', 500);
     log(`Polling started (every ${interval}ms, ${ACCEPT_COMMANDS.length} commands)`);
 
-    // VS Code commands — with async lock and safety timeout
+    // 🚀 LOCAL POLLING (Restored for reliability)
     pollIntervalId = setInterval(async () => {
         if (!isEnabled || isAccepting) return;
+
+        // FOCUS GUARD: Only execute local commands if THIS window is active.
+        // This prevents background windows from scrolling or stealing focus.
+        if (!vscode.window.state.focused) return;
+
         isAccepting = true;
-        // Safety timeout: force-release lock after 3s if commands hang
         const safetyTimer = setTimeout(() => { isAccepting = false; }, 3000);
         try {
-            await Promise.allSettled(
-                ACCEPT_COMMANDS.map(cmd => vscode.commands.executeCommand(cmd))
-            );
+            for (const cmd of ACCEPT_COMMANDS) {
+                // We run these one by one to ensure we don't spam if one fails
+                await vscode.commands.executeCommand(cmd).then(() => {
+                    // If a command succeeds, we provide feedback
+                    // Note: executeCommand usually resolves even if no action taken, 
+                    // so we look for visual changes in the next update loop.
+                });
+            }
         } catch (e) { /* silent */ }
         finally {
             clearTimeout(safetyTimer);
@@ -621,7 +633,7 @@ function applyTemporarySessionRestart() {
 // ─── Activation ───────────────────────────────────────────────────────
 function activate(context) {
     outputChannel = vscode.window.createOutputChannel('AntiGravity AutoAccept');
-    log('Extension activating (v1.18.27)');
+    log('Extension activating (v1.18.28)');
 
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
     statusBarItem.command = 'antigravity-autoaccept.toggle';
