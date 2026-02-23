@@ -1,4 +1,4 @@
-// AntiGravity AutoAccept v1.18.23
+// AntiGravity AutoAccept v1.18.24
 // Primary: VS Code Commands API with async lock
 // Secondary: Shadow DOM-piercing CDP for permission & action buttons
 
@@ -16,10 +16,12 @@ const net = require('net');
 // chatEditing.acceptAllFiles cause sidebar interference (Outline toggling,
 // folder collapsing) when the agent panel lacks focus.
 const ACCEPT_COMMANDS = [
-    'antigravity.agent.acceptAgentStep',
-    'antigravity.terminalCommand.accept',
-    'antigravity.terminalCommand.run',
-    'antigravity.command.accept',
+    // DISABLING COMMAND POLLING: These internal commands often cause 
+    // "auto-scrolling" or focus stealing. We rely on CDP instead.
+    // 'antigravity.agent.acceptAgentStep',
+    // 'antigravity.terminalCommand.accept',
+    // 'antigravity.terminalCommand.run',
+    // ...
 ];
 
 // ─── Webview-Isolated Permission Clicker ──────────────────────────────
@@ -119,11 +121,9 @@ function buildPermissionScript(customTexts) {
         var t = BUTTON_TEXTS[i];
         var target = searchTreeForText(document.body, t);
         if (target) {
+            console.log('[AutoAccept] Found button for text: ' + t);
             window._antigravity_last_click_time = Date.now();
             
-            // REMOVED: scrollIntoView. It's too disruptive and often triggers 
-            // unexpected focus shifts or window activity.
-
             try { target.click(); } catch(e) {}
             try {
                 var evt = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
@@ -133,16 +133,13 @@ function buildPermissionScript(customTexts) {
         }
     }
 
-    // Pass 2: Expand
-    var expTexts = ['expand', 'requires input'];
-    for (var j = 0; j < expTexts.length; j++) {
-        var eTarget = searchTreeForText(document.body, expTexts[j]);
-        if (eTarget) {
-            window._antigravity_last_click_time = Date.now();
-            // REMOVED: scrollIntoView
-            try { eTarget.click(); } catch(e) {}
-            return 'clicked:' + expTexts[j];
-        }
+    // Pass 2: Aggressive "Run" check if first pass missed
+    var runTarget = searchTreeForText(document.body, 'run');
+    if (runTarget) {
+        console.log('[AutoAccept] Fallback Run match found!');
+        window._antigravity_last_click_time = Date.now();
+        try { runTarget.click(); } catch(e) {}
+        return 'clicked:run-fallback';
     }
 
     return 'no-permission-button';
@@ -342,8 +339,11 @@ async function clickBannerViaDom(wsUrl) {
     });
 }
 
-// Wider port scan: 9000-9014 + common Chromium/Node defaults
-const CDP_PORTS = [9222, 9229, ...Array.from({ length: 15 }, (_, i) => 9000 + i)];
+// Wider port scan: 9222-9230 (main range) + 9000-9014 (alternative range)
+const CDP_PORTS = [
+    ...Array.from({ length: 9 }, (_, i) => 9222 + i),
+    ...Array.from({ length: 15 }, (_, i) => 9000 + i)
+];
 
 async function checkPermissionButtons() {
     // Async lock: prevent 1500ms intervals from overlapping if Chrome is slow
@@ -432,7 +432,7 @@ function startPolling() {
     // CDP permission polling
     cdpIntervalId = setInterval(() => {
         checkPermissionButtons();
-    }, 1500);
+    }, 1000);
 }
 
 function stopPolling() {
@@ -656,7 +656,7 @@ function applyTemporarySessionRestart() {
 // ─── Activation ───────────────────────────────────────────────────────
 function activate(context) {
     outputChannel = vscode.window.createOutputChannel('AntiGravity AutoAccept');
-    log('Extension activating (v1.18.18)');
+    log('Extension activating (v1.18.24)');
 
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
     statusBarItem.command = 'antigravity-autoaccept.toggle';
