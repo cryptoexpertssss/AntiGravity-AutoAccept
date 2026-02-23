@@ -1,4 +1,4 @@
-// AntiGravity AutoAccept v1.18.29
+// AntiGravity AutoAccept v1.18.30
 // Primary: VS Code Commands API with async lock
 // Secondary: Shadow DOM-piercing CDP for permission & action buttons
 
@@ -21,7 +21,6 @@ const ACCEPT_COMMANDS = [
     'antigravity.terminalCommand.run',
     'antigravity.command.accept',
     'antigravity.prioritized.agentAcceptFocusedHunk',
-    'antigravity.prioritized.chat.accept',
 ];
 
 // ─── Webview-Isolated Permission Clicker ──────────────────────────────
@@ -382,31 +381,23 @@ function startPolling() {
     const interval = config.get('pollInterval', 500);
     log(`Polling started (every ${interval}ms, ${ACCEPT_COMMANDS.length} commands)`);
 
-    // 🚀 LOCAL POLLING (Restored for reliability)
+    // 🚀 LOCAL POLLING (100ms for instant response in active window)
     pollIntervalId = setInterval(async () => {
         if (!isEnabled || isAccepting) return;
-
-        // FOCUS GUARD: Only execute local commands if THIS window is active.
-        // This prevents background windows from scrolling or stealing focus.
         if (!vscode.window.state.focused) return;
 
         isAccepting = true;
         const safetyTimer = setTimeout(() => { isAccepting = false; }, 3000);
         try {
             for (const cmd of ACCEPT_COMMANDS) {
-                // We run these one by one to ensure we don't spam if one fails
-                await vscode.commands.executeCommand(cmd).then(() => {
-                    // If a command succeeds, we provide feedback
-                    // Note: executeCommand usually resolves even if no action taken, 
-                    // so we look for visual changes in the next update loop.
-                });
+                await vscode.commands.executeCommand(cmd);
             }
-        } catch (e) { /* silent */ }
+        } catch (e) { }
         finally {
             clearTimeout(safetyTimer);
             isAccepting = false;
         }
-    }, interval);
+    }, 100);
 
     // CDP permission polling
     cdpIntervalId = setInterval(() => {
@@ -635,7 +626,7 @@ function applyTemporarySessionRestart() {
 // ─── Activation ───────────────────────────────────────────────────────
 function activate(context) {
     outputChannel = vscode.window.createOutputChannel('AntiGravity AutoAccept');
-    log('Extension activating (v1.18.29)');
+    log('Extension activating (v1.18.30)');
 
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
     statusBarItem.command = 'antigravity-autoaccept.toggle';

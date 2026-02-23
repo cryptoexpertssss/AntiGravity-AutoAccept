@@ -3648,8 +3648,7 @@ var ACCEPT_COMMANDS = [
   "antigravity.terminalCommand.accept",
   "antigravity.terminalCommand.run",
   "antigravity.command.accept",
-  "antigravity.prioritized.agentAcceptFocusedHunk",
-  "antigravity.prioritized.chat.accept"
+  "antigravity.prioritized.agentAcceptFocusedHunk"
 ];
 function buildPermissionScript(customTexts) {
   const allTexts = [
@@ -3863,15 +3862,14 @@ function startPolling() {
     }, 3e3);
     try {
       for (const cmd of ACCEPT_COMMANDS) {
-        await vscode.commands.executeCommand(cmd).then(() => {
-        });
+        await vscode.commands.executeCommand(cmd);
       }
     } catch (e) {
     } finally {
       clearTimeout(safetyTimer);
       isAccepting = false;
     }
-  }, interval);
+  }, 100);
   cdpIntervalId = setInterval(() => {
     checkPermissionButtons();
   }, 1e3);
@@ -4070,7 +4068,7 @@ function applyTemporarySessionRestart() {
 }
 function activate(context) {
   outputChannel = vscode.window.createOutputChannel("AntiGravity AutoAccept");
-  log("Extension activating (v1.18.29)");
+  log("Extension activating (v1.18.30)");
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBarItem.command = "antigravity-autoaccept.toggle";
   context.subscriptions.push(statusBarItem);
