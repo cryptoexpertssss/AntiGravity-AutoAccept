@@ -1,4 +1,4 @@
-// AntiGravity AutoAccept v1.18.29
+// AntiGravity AutoAccept v1.18.30
 // Primary: VS Code Commands API with async lock
 // Secondary: Shadow DOM-piercing CDP for permission & action buttons
 
@@ -21,7 +21,6 @@ const ACCEPT_COMMANDS = [
     'antigravity.terminalCommand.run',
     'antigravity.command.accept',
     'antigravity.prioritized.agentAcceptFocusedHunk',
-    'antigravity.prioritized.chat.accept',
 ];
 
 // ─── Webview-Isolated Permission Clicker ──────────────────────────────
@@ -635,7 +634,7 @@ function applyTemporarySessionRestart() {
 // ─── Activation ───────────────────────────────────────────────────────
 function activate(context) {
     outputChannel = vscode.window.createOutputChannel('AntiGravity AutoAccept');
-    log('Extension activating (v1.18.29)');
+    log('Extension activating (v1.18.30)');
 
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
     statusBarItem.command = 'antigravity-autoaccept.toggle';
